@@ -26,6 +26,7 @@ private:
 
     void handleParameterChangeEvent (const juce::var& payload);
     void pushSpectrumToFrontend();
+    void pushMidiStatusToFrontend();
 
     void timerCallback() override;
 

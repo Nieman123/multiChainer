@@ -8,7 +8,7 @@
 class MultiChainerAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
 public:
-    explicit MultiChainerAudioProcessorEditor (MultiChainerAudioProcessor&);
+    explicit MultiChainerAudioProcessorEditor (MultiChainerAudioProcessor& processorRef);
     ~MultiChainerAudioProcessorEditor() override;
 
     void resized() override;

@@ -15,8 +15,6 @@ public:
     struct BandParameters
     {
         int midiChannel = 0;
-        int midiNoteMin = 0;
-        int midiNoteMax = 127;
 
         float depthDb = 0.0f;
         float delayMs = 0.0f;

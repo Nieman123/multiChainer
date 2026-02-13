@@ -1,8 +1,8 @@
 #include "PluginEditor.h"
 
-MultiChainerAudioProcessorEditor::MultiChainerAudioProcessorEditor (MultiChainerAudioProcessor& processor)
-    : AudioProcessorEditor (&processor),
-      audioProcessor (processor),
+MultiChainerAudioProcessorEditor::MultiChainerAudioProcessorEditor (MultiChainerAudioProcessor& processorRef)
+    : AudioProcessorEditor (&processorRef),
+      audioProcessor (processorRef),
       webUIBridge (audioProcessor)
 {
     addAndMakeVisible (webUIBridge);

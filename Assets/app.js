@@ -8,16 +8,23 @@
     params: {},
     fftBins: [],
     appliedLowMidHz: 180,
-    appliedMidHighHz: 2500
+    appliedMidHighHz: 2500,
+    midiActivityCounter: 0,
+    availableMidiChannels: []
   };
 
   const controlSetters = new Map();
   const curveEditors = [];
+  const midiChannelSelectBindings = [];
+
+  let midiBlinkUntil = 0;
 
   const backend = window.__JUCE__ && window.__JUCE__.backend ? window.__JUCE__.backend : null;
 
   const statusDot = document.getElementById("backendStatusDot");
   const statusText = document.getElementById("backendStatusText");
+  const midiInputDot = document.getElementById("midiInputDot");
+  const midiInputText = document.getElementById("midiInputText");
 
   const spectrumCanvas = document.getElementById("spectrumCanvas");
   const spectrumCtx = spectrumCanvas.getContext("2d");
@@ -28,37 +35,10 @@
   const bandTemplate = document.getElementById("bandTemplate");
   const bandGrid = document.getElementById("bandGrid");
 
-  const defaultBands = [
-    { name: "Low Band", midiNoteMin: 36, midiNoteMax: 84 },
-    { name: "Mid Band", midiNoteMin: 36, midiNoteMax: 84 },
-    { name: "High Band", midiNoteMin: 36, midiNoteMax: 84 }
-  ];
+  const bandNames = ["Low Band", "Mid Band", "High Band"];
 
   function bandParamId(bandIndex, suffix) {
     return `band${bandIndex + 1}.${suffix}`;
-  }
-
-  function initDefaultParams() {
-    state.params["crossover.f1"] = 180;
-    state.params["crossover.f2"] = 2500;
-
-    for (let band = 0; band < 3; band += 1) {
-      state.params[bandParamId(band, "midiChannel")] = 0;
-      state.params[bandParamId(band, "midiNoteMin")] = defaultBands[band].midiNoteMin;
-      state.params[bandParamId(band, "midiNoteMax")] = defaultBands[band].midiNoteMax;
-      state.params[bandParamId(band, "depthDb")] = 12;
-      state.params[bandParamId(band, "delayMs")] = 0;
-      state.params[bandParamId(band, "attackMs")] = 20;
-      state.params[bandParamId(band, "holdMs")] = 30;
-      state.params[bandParamId(band, "releaseMs")] = 180;
-      state.params[bandParamId(band, "curveShape")] = 1;
-      state.params[bandParamId(band, "smoothing")] = 0.2;
-    }
-  }
-
-  function updateBackendStatus(online) {
-    statusDot.classList.toggle("online", online);
-    statusText.textContent = online ? "Backend connected" : "Backend unavailable (preview mode)";
   }
 
   function clamp(value, min, max) {
@@ -74,6 +54,56 @@
       return 0;
     }
     return (value - min) / (max - min);
+  }
+
+  function quantize(value, min, step) {
+    if (!step || step <= 0) {
+      return value;
+    }
+
+    const snapped = Math.round((value - min) / step) * step + min;
+    const precision = Math.max(0, Math.ceil(-Math.log10(step)) + 1);
+    return Number(snapped.toFixed(precision));
+  }
+
+  function defaultMidiChannels() {
+    return Array.from({ length: 16 }, (_, index) => {
+      const channel = index + 1;
+      return { value: channel, name: `DAW Ch ${channel}` };
+    });
+  }
+
+  function currentMidiChannels() {
+    return state.availableMidiChannels.length > 0 ? state.availableMidiChannels : defaultMidiChannels();
+  }
+
+  function initDefaultParams() {
+    state.params["crossover.f1"] = 180;
+    state.params["crossover.f2"] = 2500;
+
+    for (let band = 0; band < 3; band += 1) {
+      state.params[bandParamId(band, "midiChannel")] = 0;
+      state.params[bandParamId(band, "depthDb")] = 12;
+      state.params[bandParamId(band, "delayMs")] = 0;
+      state.params[bandParamId(band, "attackMs")] = 20;
+      state.params[bandParamId(band, "holdMs")] = 30;
+      state.params[bandParamId(band, "releaseMs")] = 180;
+      state.params[bandParamId(band, "curveShape")] = 1;
+      state.params[bandParamId(band, "smoothing")] = 0.2;
+    }
+  }
+
+  function updateBackendStatus(online) {
+    statusDot.classList.toggle("online", online);
+    statusText.textContent = online ? "Backend connected" : "Backend unavailable (preview mode)";
+  }
+
+  function updateMidiIndicator() {
+    const now = performance.now();
+    const active = now <= midiBlinkUntil;
+
+    midiInputDot.classList.toggle("active", active);
+    midiInputText.textContent = active ? "MIDI input detected" : "MIDI idle";
   }
 
   function freqToNorm(freq) {
@@ -95,14 +125,8 @@
     if (value >= 1000) {
       return `${(value / 1000).toFixed(2)} kHz`;
     }
-    return `${Math.round(value)} Hz`;
-  }
 
-  function noteName(note) {
-    const names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
-    const octave = Math.floor(note / 12) - 1;
-    const name = names[note % 12];
-    return `${note} (${name}${octave})`;
+    return `${Math.round(value)} Hz`;
   }
 
   function emitParamChange(parameterID, value) {
@@ -133,77 +157,157 @@
     controlSetters.set(paramID, setter);
   }
 
-  function createSlider(parent, label, paramID, config) {
-    const wrap = document.createElement("div");
-    wrap.className = "slider-wrap";
+  function refreshMidiChannelSelectOptions(binding) {
+    const { select, paramID } = binding;
+    const channels = currentMidiChannels();
 
-    const top = document.createElement("div");
-    top.className = "slider-top";
+    const selectedValue = String(Math.round(Number(state.params[paramID] ?? 0)));
 
-    const name = document.createElement("span");
-    name.textContent = label;
+    select.innerHTML = "";
 
-    const valueLabel = document.createElement("span");
-    valueLabel.className = "slider-value";
+    const omniOption = document.createElement("option");
+    omniOption.value = "0";
+    omniOption.textContent = "Omni";
+    select.appendChild(omniOption);
 
-    top.appendChild(name);
-    top.appendChild(valueLabel);
-
-    const input = document.createElement("input");
-    input.type = "range";
-    input.min = String(config.min);
-    input.max = String(config.max);
-    input.step = String(config.step);
-    input.value = String(state.params[paramID] ?? config.defaultValue);
-
-    input.addEventListener("input", () => {
-      const value = Number(input.value);
-      valueLabel.textContent = config.format(value);
-      emitParamChange(paramID, value);
-      redrawCurves();
-      if (paramID === "crossover.f1" || paramID === "crossover.f2") {
-        updateCrossoverLines();
-      }
+    channels.forEach((channel) => {
+      const option = document.createElement("option");
+      option.value = String(channel.value);
+      option.textContent = channel.name;
+      select.appendChild(option);
     });
 
-    wrap.appendChild(top);
-    wrap.appendChild(input);
-    parent.appendChild(wrap);
-
-    registerSetter(paramID, (value) => {
-      input.value = String(value);
-      valueLabel.textContent = config.format(Number(value));
-    });
-
-    controlSetters.get(paramID)(state.params[paramID] ?? config.defaultValue);
+    const hasValueOption = Array.from(select.options).some((option) => option.value === selectedValue);
+    select.value = hasValueOption ? selectedValue : "0";
   }
 
-  function createMidiSelect(select, options, paramID) {
-    options.forEach((option) => {
-      const node = document.createElement("option");
-      node.value = String(option.value);
-      node.textContent = option.label;
-      select.appendChild(node);
+  function refreshAllMidiChannelSelectOptions() {
+    midiChannelSelectBindings.forEach((binding) => {
+      refreshMidiChannelSelectOptions(binding);
     });
+  }
 
-    select.value = String(state.params[paramID] ?? 0);
+  function createMidiChannelSelect(select, paramID) {
+    const binding = { select, paramID };
+    midiChannelSelectBindings.push(binding);
+
+    refreshMidiChannelSelectOptions(binding);
 
     select.addEventListener("change", () => {
       emitParamChange(paramID, Number(select.value));
     });
 
     registerSetter(paramID, (value) => {
-      select.value = String(Math.round(Number(value)));
+      state.params[paramID] = Number(value);
+      refreshMidiChannelSelectOptions(binding);
     });
   }
 
-  function populateNoteSelect(select) {
-    for (let note = 0; note <= 127; note += 1) {
-      const option = document.createElement("option");
-      option.value = String(note);
-      option.textContent = noteName(note);
-      select.appendChild(option);
+  function createKnob(parent, label, paramID, config) {
+    const wrap = document.createElement("div");
+    wrap.className = "knob-wrap";
+
+    const head = document.createElement("div");
+    head.className = "knob-head";
+
+    const name = document.createElement("span");
+    name.className = "knob-name";
+    name.textContent = label;
+
+    const valueLabel = document.createElement("span");
+    valueLabel.className = "knob-value";
+
+    head.appendChild(name);
+    head.appendChild(valueLabel);
+
+    const hit = document.createElement("div");
+    hit.className = "knob-hit";
+
+    const knob = document.createElement("div");
+    knob.className = "knob";
+
+    const indicator = document.createElement("div");
+    indicator.className = "knob-indicator";
+
+    knob.appendChild(indicator);
+    hit.appendChild(knob);
+
+    wrap.appendChild(head);
+    wrap.appendChild(hit);
+    parent.appendChild(wrap);
+
+    let dragStartY = 0;
+    let dragStartValue = 0;
+    let dragging = false;
+
+    function setVisual(value) {
+      const clampedValue = clamp(Number(value), config.min, config.max);
+      const norm = invLerp(config.min, config.max, clampedValue);
+      const angle = lerp(-140, 140, norm);
+
+      knob.style.setProperty("--knob-angle", `${angle}deg`);
+      valueLabel.textContent = config.format(clampedValue);
     }
+
+    function applyValue(value, shouldEmit) {
+      const clamped = clamp(Number(value), config.min, config.max);
+      const snapped = quantize(clamped, config.min, config.step);
+
+      state.params[paramID] = snapped;
+      setVisual(snapped);
+
+      if (shouldEmit) {
+        emitParamChange(paramID, snapped);
+      }
+
+      redrawCurves();
+    }
+
+    function updateFromDelta(deltaY) {
+      const range = config.max - config.min;
+      const sensitivity = config.sensitivity ?? range / 220;
+      const nextValue = dragStartValue + deltaY * sensitivity;
+      applyValue(nextValue, true);
+    }
+
+    hit.addEventListener("pointerdown", (event) => {
+      dragging = true;
+      dragStartY = event.clientY;
+      dragStartValue = Number(state.params[paramID] ?? config.defaultValue);
+      hit.setPointerCapture(event.pointerId);
+      event.preventDefault();
+    });
+
+    hit.addEventListener("pointermove", (event) => {
+      if (!dragging) {
+        return;
+      }
+
+      const deltaY = dragStartY - event.clientY;
+      updateFromDelta(deltaY);
+    });
+
+    hit.addEventListener("pointerup", () => {
+      dragging = false;
+    });
+
+    hit.addEventListener("pointercancel", () => {
+      dragging = false;
+    });
+
+    hit.addEventListener("wheel", (event) => {
+      event.preventDefault();
+      const current = Number(state.params[paramID] ?? config.defaultValue);
+      const wheelStep = config.step * (event.shiftKey ? 0.25 : 1.0);
+      const next = current - Math.sign(event.deltaY) * wheelStep;
+      applyValue(next, true);
+    }, { passive: false });
+
+    registerSetter(paramID, (value) => {
+      applyValue(value, false);
+    });
+
+    controlSetters.get(paramID)(state.params[paramID] ?? config.defaultValue);
   }
 
   function createCurveEditor(canvas, bandIndex) {
@@ -352,76 +456,19 @@
   }
 
   function buildBandPanels() {
-    defaultBands.forEach((bandInfo, bandIndex) => {
+    bandNames.forEach((bandName, bandIndex) => {
       const fragment = bandTemplate.content.cloneNode(true);
       const card = fragment.querySelector(".band-card");
 
-      card.querySelector(".band-title").textContent = bandInfo.name;
+      card.querySelector(".band-title").textContent = bandName;
 
       const channelSelect = card.querySelector('select[data-param="midiChannel"]');
-      const noteMinSelect = card.querySelector('select[data-param="midiNoteMin"]');
-      const noteMaxSelect = card.querySelector('select[data-param="midiNoteMax"]');
+      const midiChannelID = bandParamId(bandIndex, "midiChannel");
+      createMidiChannelSelect(channelSelect, midiChannelID);
 
-      createMidiSelect(
-        channelSelect,
-        [{ value: 0, label: "Omni" }].concat(
-          Array.from({ length: 16 }, (_, index) => ({ value: index + 1, label: `Ch ${index + 1}` }))
-        ),
-        bandParamId(bandIndex, "midiChannel")
-      );
+      const knobs = card.querySelector('[data-grid="knobs"]');
 
-      populateNoteSelect(noteMinSelect);
-      populateNoteSelect(noteMaxSelect);
-
-      const noteMinID = bandParamId(bandIndex, "midiNoteMin");
-      const noteMaxID = bandParamId(bandIndex, "midiNoteMax");
-
-      noteMinSelect.value = String(state.params[noteMinID]);
-      noteMaxSelect.value = String(state.params[noteMaxID]);
-
-      noteMinSelect.addEventListener("change", () => {
-        let noteMin = Number(noteMinSelect.value);
-        let noteMax = Number(noteMaxSelect.value);
-
-        if (noteMin > noteMax) {
-          noteMax = noteMin;
-          noteMaxSelect.value = String(noteMax);
-          emitParamBatch([
-            { id: noteMinID, value: noteMin },
-            { id: noteMaxID, value: noteMax }
-          ]);
-        } else {
-          emitParamChange(noteMinID, noteMin);
-        }
-      });
-
-      noteMaxSelect.addEventListener("change", () => {
-        let noteMin = Number(noteMinSelect.value);
-        let noteMax = Number(noteMaxSelect.value);
-
-        if (noteMax < noteMin) {
-          noteMin = noteMax;
-          noteMinSelect.value = String(noteMin);
-          emitParamBatch([
-            { id: noteMinID, value: noteMin },
-            { id: noteMaxID, value: noteMax }
-          ]);
-        } else {
-          emitParamChange(noteMaxID, noteMax);
-        }
-      });
-
-      registerSetter(noteMinID, (value) => {
-        noteMinSelect.value = String(Math.round(Number(value)));
-      });
-
-      registerSetter(noteMaxID, (value) => {
-        noteMaxSelect.value = String(Math.round(Number(value)));
-      });
-
-      const sliders = card.querySelector('[data-grid="sliders"]');
-
-      createSlider(sliders, "Depth", bandParamId(bandIndex, "depthDb"), {
+      createKnob(knobs, "Depth", bandParamId(bandIndex, "depthDb"), {
         min: 0,
         max: 60,
         step: 0.1,
@@ -429,7 +476,7 @@
         format: (v) => `-${v.toFixed(1)} dB`
       });
 
-      createSlider(sliders, "Delay", bandParamId(bandIndex, "delayMs"), {
+      createKnob(knobs, "Delay", bandParamId(bandIndex, "delayMs"), {
         min: 0,
         max: 200,
         step: 0.1,
@@ -437,7 +484,7 @@
         format: (v) => `${v.toFixed(1)} ms`
       });
 
-      createSlider(sliders, "Attack", bandParamId(bandIndex, "attackMs"), {
+      createKnob(knobs, "Attack", bandParamId(bandIndex, "attackMs"), {
         min: 0,
         max: 1000,
         step: 0.1,
@@ -445,7 +492,7 @@
         format: (v) => `${v.toFixed(1)} ms`
       });
 
-      createSlider(sliders, "Hold", bandParamId(bandIndex, "holdMs"), {
+      createKnob(knobs, "Hold", bandParamId(bandIndex, "holdMs"), {
         min: 0,
         max: 1000,
         step: 0.1,
@@ -453,7 +500,7 @@
         format: (v) => `${v.toFixed(1)} ms`
       });
 
-      createSlider(sliders, "Release", bandParamId(bandIndex, "releaseMs"), {
+      createKnob(knobs, "Release", bandParamId(bandIndex, "releaseMs"), {
         min: 1,
         max: 3000,
         step: 0.1,
@@ -461,7 +508,7 @@
         format: (v) => `${v.toFixed(1)} ms`
       });
 
-      createSlider(sliders, "Curve Shape", bandParamId(bandIndex, "curveShape"), {
+      createKnob(knobs, "Curve Shape", bandParamId(bandIndex, "curveShape"), {
         min: 0.1,
         max: 10,
         step: 0.01,
@@ -469,7 +516,7 @@
         format: (v) => `${v.toFixed(2)}x`
       });
 
-      createSlider(sliders, "Smoothing", bandParamId(bandIndex, "smoothing"), {
+      createKnob(knobs, "Smoothing", bandParamId(bandIndex, "smoothing"), {
         min: 0,
         max: 1,
         step: 0.001,
@@ -553,6 +600,33 @@
     });
   }
 
+  function applyMidiStatus(payload) {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    if (typeof payload.activityCounter === "number") {
+      const nextCounter = payload.activityCounter;
+      if (nextCounter > state.midiActivityCounter) {
+        midiBlinkUntil = performance.now() + 250;
+      }
+      state.midiActivityCounter = nextCounter;
+    }
+
+    if (Array.isArray(payload.channels)) {
+      state.availableMidiChannels = payload.channels
+        .map((channel) => ({
+          value: Number(channel.value),
+          name: String(channel.name)
+        }))
+        .filter((channel) => Number.isFinite(channel.value) && channel.value >= 1 && channel.value <= 16);
+
+      refreshAllMidiChannelSelectOptions();
+    }
+
+    updateMidiIndicator();
+  }
+
   function applyStateSnapshot(payload) {
     if (!payload || typeof payload !== "object") {
       return;
@@ -570,6 +644,10 @@
 
     if (typeof payload.appliedMidHighHz === "number") {
       state.appliedMidHighHz = payload.appliedMidHighHz;
+    }
+
+    if (payload.midi && typeof payload.midi === "object") {
+      applyMidiStatus(payload.midi);
     }
 
     refreshAllControls();
@@ -654,6 +732,7 @@
       spectrumCtx.stroke();
     }
 
+    updateMidiIndicator();
     window.requestAnimationFrame(drawSpectrum);
   }
 
@@ -671,6 +750,10 @@
 
     backend.addEventListener("fft", (payload) => {
       handleFFT(payload);
+    });
+
+    backend.addEventListener("midiStatus", (payload) => {
+      applyMidiStatus(payload);
     });
 
     backend.emitEvent("requestState", {});

@@ -357,12 +357,12 @@ void LinearPhaseCrossover::FIRLowpassFilter::process (const juce::AudioBuffer<fl
 }
 
 //==============================================================================
-void LinearPhaseCrossover::DelayCompensator::prepare (int numChannelsToUse, int delaySamplesToUse, int maxBlockSize)
+void LinearPhaseCrossover::DelayCompensator::prepare (int numChannelsToUse, int delaySamplesToUse, int maxBlockSizeInSamples)
 {
     numChannels = juce::jmax (1, numChannelsToUse);
     delaySamples = juce::jmax (0, delaySamplesToUse);
 
-    bufferLength = juce::jmax (delaySamples + maxBlockSize + 1, delaySamples + 2);
+    bufferLength = juce::jmax (delaySamples + maxBlockSizeInSamples + 1, delaySamples + 2);
 
     buffer.setSize (numChannels, bufferLength, false, false, true);
     buffer.clear();

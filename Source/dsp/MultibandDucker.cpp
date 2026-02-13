@@ -35,8 +35,6 @@ void MultibandDucker::setBandParameters (size_t bandIndex, const BandParameters&
 
     MidiTriggerConfig triggerConfig;
     triggerConfig.midiChannel = parameters.midiChannel;
-    triggerConfig.noteMin = parameters.midiNoteMin;
-    triggerConfig.noteMax = parameters.midiNoteMax;
 
     band.trigger.setConfig (triggerConfig);
 
@@ -71,7 +69,7 @@ void MultibandDucker::pushMidiMessage (const juce::MidiMessage& message, int sam
             continue;
 
         if (band.numTriggers < maxTriggersPerBlock)
-            band.triggerSamples[band.numTriggers++] = clampedOffset;
+            band.triggerSamples[static_cast<size_t> (band.numTriggers++)] = clampedOffset;
     }
 }
 
@@ -97,7 +95,7 @@ void MultibandDucker::processSingleBand (BandState& band, juce::AudioBuffer<floa
     {
         auto triggerNow = false;
 
-        while (triggerIndex < band.numTriggers && band.triggerSamples[triggerIndex] == sample)
+        while (triggerIndex < band.numTriggers && band.triggerSamples[static_cast<size_t> (triggerIndex)] == sample)
         {
             triggerNow = true;
             ++triggerIndex;

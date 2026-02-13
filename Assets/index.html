@@ -13,9 +13,17 @@
         <h1>MultiChainer</h1>
         <p class="subtitle">MIDI-triggered linear-phase multiband ducking</p>
       </div>
-      <div class="status-wrap">
-        <span class="status-dot" id="backendStatusDot"></span>
-        <span id="backendStatusText">Connecting backend…</span>
+
+      <div class="status-cluster">
+        <div class="status-wrap">
+          <span class="status-dot" id="backendStatusDot"></span>
+          <span id="backendStatusText">Connecting backend…</span>
+        </div>
+
+        <div class="status-wrap midi-wrap">
+          <span class="midi-dot" id="midiInputDot"></span>
+          <span id="midiInputText">MIDI idle</span>
+        </div>
       </div>
     </header>
 
@@ -52,19 +60,9 @@
           MIDI Channel
           <select data-param="midiChannel"></select>
         </label>
-
-        <label>
-          Note Min
-          <select data-param="midiNoteMin"></select>
-        </label>
-
-        <label>
-          Note Max
-          <select data-param="midiNoteMax"></select>
-        </label>
       </div>
 
-      <div class="control-grid" data-grid="sliders"></div>
+      <div class="control-grid" data-grid="knobs"></div>
 
       <div class="curve-panel">
         <div class="curve-head">

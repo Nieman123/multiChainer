@@ -85,6 +85,7 @@ void WebUIBridge::sendFullStateToFrontend()
         return;
 
     browser->emitEventIfBrowserIsVisible ("state", processor.buildParameterSnapshot());
+    browser->emitEventIfBrowserIsVisible ("midiStatus", processor.buildMidiInputSnapshot());
 }
 
 void WebUIBridge::handleParameterChangeEvent (const juce::var& payload)
@@ -142,9 +143,18 @@ void WebUIBridge::pushSpectrumToFrontend()
     browser->emitEventIfBrowserIsVisible ("fft", juce::var (payload.release()));
 }
 
+void WebUIBridge::pushMidiStatusToFrontend()
+{
+    if (browser == nullptr)
+        return;
+
+    browser->emitEventIfBrowserIsVisible ("midiStatus", processor.buildMidiInputSnapshot());
+}
+
 void WebUIBridge::timerCallback()
 {
     pushSpectrumToFrontend();
+    pushMidiStatusToFrontend();
 
     ++stateBroadcastCounter;
     if (stateBroadcastCounter >= 10)

@@ -10,7 +10,7 @@ Audio is split into three FIR linear-phase bands, ducked independently by MIDI-t
 - Two crossover points (`f1`, `f2`) with enforcement of `f1 < f2`
 - Per-band MIDI trigger filters:
   - channel (`omni` or `1..16`)
-  - note min/max (`0..127`)
+  - reacts to any note on the selected channel
 - Per-band ducking envelope:
   - depth (`0..60 dB` attenuation)
   - delay (`0..200 ms`)

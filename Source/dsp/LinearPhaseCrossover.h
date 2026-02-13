@@ -57,7 +57,7 @@ private:
     class DelayCompensator
     {
     public:
-        void prepare (int numChannels, int delaySamples, int maxBlockSize);
+        void prepare (int numChannels, int delaySamples, int maxBlockSizeInSamples);
         void reset();
         void process (const juce::AudioBuffer<float>& input, juce::AudioBuffer<float>& output, int numSamples);
 

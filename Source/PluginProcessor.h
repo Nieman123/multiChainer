@@ -45,6 +45,7 @@ public:
 
     juce::StringArray getParameterIDs() const;
     juce::var buildParameterSnapshot() const;
+    juce::var buildMidiInputSnapshot() const;
     void setParameterFromUI (const juce::String& parameterID, float value);
 
     static juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
@@ -53,8 +54,6 @@ private:
     struct BandRawParameters
     {
         std::atomic<float>* midiChannel = nullptr;
-        std::atomic<float>* midiNoteMin = nullptr;
-        std::atomic<float>* midiNoteMax = nullptr;
 
         std::atomic<float>* depthDb = nullptr;
         std::atomic<float>* delayMs = nullptr;
@@ -79,6 +78,9 @@ private:
     multichainer::dsp::LinearPhaseCrossover crossover;
     multichainer::dsp::MultibandDucker ducker;
     multichainer::dsp::FFTAnalyzer fftAnalyzer;
+
+    std::atomic<uint32_t> midiActivityCounter { 0 };
+    std::atomic<uint16_t> observedMidiChannelsMask { 0 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MultiChainerAudioProcessor)
 };

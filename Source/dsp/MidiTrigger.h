@@ -7,8 +7,6 @@ namespace multichainer::dsp
 struct MidiTriggerConfig
 {
     int midiChannel = 0; // 0 = omni, 1-16 = channel
-    int noteMin = 0;
-    int noteMax = 127;
 };
 
 class MidiTrigger

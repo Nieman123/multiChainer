@@ -81,8 +81,6 @@ void MultiChainerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
         multichainer::dsp::MultibandDucker::BandParameters parameters;
         parameters.midiChannel = juce::roundToInt (readRaw (rawBand.midiChannel, 0.0f));
-        parameters.midiNoteMin = juce::roundToInt (readRaw (rawBand.midiNoteMin, 0.0f));
-        parameters.midiNoteMax = juce::roundToInt (readRaw (rawBand.midiNoteMax, 127.0f));
 
         parameters.depthDb = readRaw (rawBand.depthDb, 0.0f);
         parameters.delayMs = readRaw (rawBand.delayMs, 0.0f);
@@ -97,8 +95,23 @@ void MultiChainerAudioProcessor::processBlock (juce::AudioBuffer<float>& buffer,
 
     ducker.clearBlockTriggers();
 
+    uint16_t blockChannelMask = 0;
+
     for (const auto metadata : midiMessages)
-        ducker.pushMidiMessage (metadata.getMessage(), metadata.samplePosition, numSamples);
+    {
+        const auto& message = metadata.getMessage();
+
+        if (message.getChannel() >= 1 && message.getChannel() <= 16)
+            blockChannelMask |= static_cast<uint16_t> (1u << static_cast<unsigned> (message.getChannel() - 1));
+
+        ducker.pushMidiMessage (message, metadata.samplePosition, numSamples);
+    }
+
+    if (blockChannelMask != 0)
+    {
+        observedMidiChannelsMask.fetch_or (blockChannelMask, std::memory_order_relaxed);
+        midiActivityCounter.fetch_add (1, std::memory_order_relaxed);
+    }
 
     crossover.process (buffer, numSamples);
 
@@ -219,8 +232,6 @@ juce::StringArray MultiChainerAudioProcessor::getParameterIDs() const
     for (int band = 0; band < static_cast<int> (bandParameters.size()); ++band)
     {
         ids.add (getBandParameterID (band, "midiChannel"));
-        ids.add (getBandParameterID (band, "midiNoteMin"));
-        ids.add (getBandParameterID (band, "midiNoteMax"));
         ids.add (getBandParameterID (band, "depthDb"));
         ids.add (getBandParameterID (band, "delayMs"));
         ids.add (getBandParameterID (band, "attackMs"));
@@ -247,7 +258,36 @@ juce::var MultiChainerAudioProcessor::buildParameterSnapshot() const
     root->setProperty ("params", juce::var (params.release()));
     root->setProperty ("appliedLowMidHz", crossover.getAppliedLowMidHz());
     root->setProperty ("appliedMidHighHz", crossover.getAppliedMidHighHz());
+    root->setProperty ("midi", buildMidiInputSnapshot());
 
+    return juce::var (root.release());
+}
+
+juce::var MultiChainerAudioProcessor::buildMidiInputSnapshot() const
+{
+    auto root = std::make_unique<juce::DynamicObject>();
+    root->setProperty ("activityCounter", static_cast<int64> (midiActivityCounter.load (std::memory_order_relaxed)));
+
+    const auto channelMask = observedMidiChannelsMask.load (std::memory_order_relaxed);
+    const auto hasObservedChannels = channelMask != 0;
+
+    juce::Array<juce::var> channels;
+    channels.ensureStorageAllocated (16);
+
+    for (int channel = 1; channel <= 16; ++channel)
+    {
+        const auto bit = static_cast<uint16_t> (1u << static_cast<unsigned> (channel - 1));
+
+        if (! hasObservedChannels || (channelMask & bit) != 0)
+        {
+            auto channelObject = std::make_unique<juce::DynamicObject>();
+            channelObject->setProperty ("value", channel);
+            channelObject->setProperty ("name", juce::String ("DAW Ch ") + juce::String (channel));
+            channels.add (juce::var (channelObject.release()));
+        }
+    }
+
+    root->setProperty ("channels", juce::var (channels));
     return juce::var (root.release());
 }
 
@@ -291,20 +331,6 @@ juce::AudioProcessorValueTreeState::ParameterLayout MultiChainerAudioProcessor::
             0,
             16,
             0));
-
-        layout.add (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { getBandParameterID (band, "midiNoteMin"), 1 },
-            bandName + "MIDI Note Min",
-            0,
-            127,
-            36));
-
-        layout.add (std::make_unique<juce::AudioParameterInt> (
-            juce::ParameterID { getBandParameterID (band, "midiNoteMax"), 1 },
-            bandName + "MIDI Note Max",
-            0,
-            127,
-            84));
 
         layout.add (std::make_unique<juce::AudioParameterFloat> (
             juce::ParameterID { getBandParameterID (band, "depthDb"), 1 },
@@ -362,8 +388,6 @@ void MultiChainerAudioProcessor::cacheRawParameterPointers()
         auto& rawBand = bandParameters[static_cast<size_t> (band)];
 
         rawBand.midiChannel = apvts.getRawParameterValue (getBandParameterID (band, "midiChannel"));
-        rawBand.midiNoteMin = apvts.getRawParameterValue (getBandParameterID (band, "midiNoteMin"));
-        rawBand.midiNoteMax = apvts.getRawParameterValue (getBandParameterID (band, "midiNoteMax"));
 
         rawBand.depthDb = apvts.getRawParameterValue (getBandParameterID (band, "depthDb"));
         rawBand.delayMs = apvts.getRawParameterValue (getBandParameterID (band, "delayMs"));
