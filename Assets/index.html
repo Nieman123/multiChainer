@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MultiChainer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main id="app">
+    <header class="topbar">
+      <div>
+        <h1>MultiChainer</h1>
+        <p class="subtitle">MIDI-triggered linear-phase multiband ducking</p>
+      </div>
+      <div class="status-wrap">
+        <span class="status-dot" id="backendStatusDot"></span>
+        <span id="backendStatusText">Connecting backend…</span>
+      </div>
+    </header>
+
+    <section class="card spectrum-card">
+      <div class="section-head">
+        <h2>Spectrum</h2>
+        <p>Output spectrum + draggable crossovers</p>
+      </div>
+
+      <div id="spectrumWrap">
+        <canvas id="spectrumCanvas" width="1280" height="320"></canvas>
+        <div id="crossoverOverlay" aria-label="Crossover controls">
+          <div class="crossover-line" data-param="crossover.f1">
+            <span class="line-label" data-label="crossover.f1"></span>
+          </div>
+          <div class="crossover-line" data-param="crossover.f2">
+            <span class="line-label" data-label="crossover.f2"></span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="band-grid" id="bandGrid"></section>
+  </main>
+
+  <template id="bandTemplate">
+    <article class="card band-card">
+      <div class="section-head">
+        <h3 class="band-title"></h3>
+      </div>
+
+      <div class="control-row midi-row">
+        <label>
+          MIDI Channel
+          <select data-param="midiChannel"></select>
+        </label>
+
+        <label>
+          Note Min
+          <select data-param="midiNoteMin"></select>
+        </label>
+
+        <label>
+          Note Max
+          <select data-param="midiNoteMax"></select>
+        </label>
+      </div>
+
+      <div class="control-grid" data-grid="sliders"></div>
+
+      <div class="curve-panel">
+        <div class="curve-head">
+          <span>Sidechain Curve Editor</span>
+          <small>Drag point to shape release/curve</small>
+        </div>
+        <canvas class="curve-canvas" width="360" height="150"></canvas>
+      </div>
+    </article>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
